@@ -120,6 +120,38 @@ public class DemoController {
     }
 
     /**
+     * Search users by department
+     */
+    @GetMapping("/users/search/department/{department}")
+    public ResponseEntity<List<User>> getUsersByDepartment(@PathVariable String department) {
+        List<User> users = userService.getUsersByDepartment(department);
+        return ResponseEntity.ok(users);
+    }
+
+    /**
+     * Search active users
+     */
+    @GetMapping("/users/search/active")
+    public ResponseEntity<List<User>> getActiveUsers() {
+        List<User> activeUsers = userService.getActiveUsers();
+        return ResponseEntity.ok(activeUsers);
+    }
+
+    /**
+     * Update user status (activate/deactivate)
+     */
+    @PatchMapping("/users/{id}/status")
+    public ResponseEntity<User> updateUserStatus(@PathVariable Long id, @RequestParam Boolean isActive) {
+        return userService.getUserById(id)
+                .map(user -> {
+                    user.setIsActive(isActive);
+                    User updatedUser = userService.saveUser(user);
+                    return ResponseEntity.ok(updatedUser);
+                })
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
      * Endpoint to test different environments
      */
     @GetMapping("/environment")
