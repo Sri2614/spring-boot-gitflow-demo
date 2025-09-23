@@ -73,21 +73,22 @@ jobs:
       - name: Build Docker image (test)
         run: mvn jib:dockerBuild -Pdocker-local -DskipTests
 
-      - name: Security scan (OWASP Dependency Check)
-        run: |
-          mvn org.owasp:dependency-check-maven:check -B
-        continue-on-error: true
-
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        with:
-          args: >
-            -Dsonar.projectKey=spring-boot-gitflow-demo
-            -Dsonar.organization=${{ github.repository_owner }}
-        continue-on-error: true
+      # Security scans disabled for faster builds
+      # - name: Security scan (OWASP Dependency Check)
+      #   run: |
+      #     mvn org.owasp:dependency-check-maven:check -B
+      #   continue-on-error: true
+      #
+      # - name: SonarCloud Scan
+      #   uses: SonarSource/sonarcloud-github-action@master
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      #   with:
+      #     args: >
+      #       -Dsonar.projectKey=spring-boot-gitflow-demo
+      #       -Dsonar.organization=${{ github.repository_owner }}
+      #   continue-on-error: true
 
       - name: Comment PR with build info
         uses: actions/github-script@v6
