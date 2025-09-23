@@ -5,6 +5,13 @@ on:
     branches: [ main, master, develop, 'release/*', 'hotfix/*', 'feature/*' ]
     types: [ opened, synchronize, reopened ]
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  checks: write
+  statuses: write
+
 jobs:
   test-and-build:
     runs-on: ubuntu-latest

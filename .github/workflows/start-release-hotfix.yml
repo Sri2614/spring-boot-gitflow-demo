@@ -4,6 +4,13 @@ on:
   issues:
     types: [ opened ]
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  checks: write
+  statuses: write
+
 jobs:
   start-release-hotfix:
     runs-on: ubuntu-latest
