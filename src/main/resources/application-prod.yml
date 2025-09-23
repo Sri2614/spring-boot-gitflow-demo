@@ -1,0 +1,25 @@
+# Production Environment Configuration
+demo:
+  environment: prod
+  
+logging:
+  level:
+    com.example.demo: WARN
+    org.springframework: WARN
+    org.hibernate: WARN
+    org.springframework.web: WARN
+
+spring:
+  h2:
+    console:
+      enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics

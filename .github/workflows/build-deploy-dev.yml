@@ -1,0 +1,96 @@
+name: Build and Deploy to DEV
+
+on:
+  pull_request:
+    branches:
+      - develop
+    types:
+      - closed
+
+jobs:
+  build-dev:
+    runs-on: ubuntu-latest
+    # Only run when PR is merged and comes from feature/bugfix branches
+    if: >
+      github.event.pull_request.merged == true && 
+      (startsWith(github.event.pull_request.head.ref, 'feature/') || 
+       startsWith(github.event.pull_request.head.ref, 'bugfix/'))
+    strategy:
+      matrix:
+        java: [21]
+    name: Build and deploy to DEV environment
+    timeout-minutes: 30
+    environment: development
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java ${{ matrix.java }}
+        uses: actions/setup-java@v3
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Run tests
+        run: mvn clean test -B
+
+      - name: Build and publish to DEV
+        uses: ./.github/actions/build-and-publish
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          environment: dev
+          docker-registry: ghcr.io
+          docker-username: ${{ github.actor }}
+          docker-password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy to DEV environment
+        run: |
+          echo "🚀 Deploying to DEV environment..."
+          echo "This is where you would deploy to your DEV environment"
+          echo "For example:"
+          echo "- Update Kubernetes manifests"
+          echo "- Trigger ArgoCD sync"
+          echo "- Call deployment webhook"
+          echo "- Update Helm charts"
+
+      - name: Run smoke tests
+        run: |
+          echo "🧪 Running smoke tests against DEV environment..."
+          # This is where you would run smoke tests
+          # mvn test -Dtest.profile=smoke -Dapp.url=https://dev.yourdomain.com
+          echo "✅ Smoke tests passed"
+
+      - name: Notify team
+        if: always()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const status = '${{ job.status }}' === 'success' ? '✅ SUCCESS' : '❌ FAILED';
+            const prTitle = context.payload.pull_request.title;
+            const prNumber = context.payload.pull_request.number;
+            const branch = context.payload.pull_request.head.ref;
+            
+            // You could send to Slack, Teams, Discord, etc.
+            console.log(`${status} DEV Deployment`);
+            console.log(`PR #${prNumber}: ${prTitle}`);
+            console.log(`Branch: ${branch}`);
+            console.log(`Environment: DEV`);
+
+      - name: Create deployment summary
+        if: always()
+        run: |
+          echo "## 🚀 DEV Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: DEV" >> $GITHUB_STEP_SUMMARY
+          echo "- **PR**: #${{ github.event.pull_request.number }} - ${{ github.event.pull_request.title }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ github.event.pull_request.head.ref }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Java Version**: ${{ matrix.java }}" >> $GITHUB_STEP_SUMMARY

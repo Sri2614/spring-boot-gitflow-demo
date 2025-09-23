@@ -1,0 +1,225 @@
+name: Promote to Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - tst
+          - uat
+          - preprod
+        default: 'tst'
+      source_ref:
+        description: 'Source commit SHA or branch (leave empty for latest develop)'
+        required: false
+        type: string
+      create_tag:
+        description: 'Create environment tag'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java: [21]
+    name: Promote to ${{ github.event.inputs.environment }} environment
+    timeout-minutes: 30
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Validate inputs
+        run: |
+          echo "🎯 Promotion Details:"
+          echo "  Target Environment: ${{ github.event.inputs.environment }}"
+          echo "  Source: ${{ github.event.inputs.source_ref || 'latest develop' }}"
+          echo "  Create Tag: ${{ github.event.inputs.create_tag }}"
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.source_ref || 'develop' }}
+          fetch-depth: 0
+
+      - name: Set up Java ${{ matrix.java }}
+        uses: actions/setup-java@v3
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Extract version information
+        id: version
+        uses: ./.github/actions/extract-version
+
+      - name: Create environment tag
+        if: github.event.inputs.create_tag == 'true'
+        run: |
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          ENV_TAG="${{ github.event.inputs.environment }}/${{ steps.version.outputs.current-version }}-${TIMESTAMP}-${SHORT_SHA}"
+          
+          echo "🏷️ Creating environment tag: $ENV_TAG"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git tag -a "$ENV_TAG" -m "${{ github.event.inputs.environment }} promotion of ${{ steps.version.outputs.current-version }}"
+          git push origin "$ENV_TAG"
+          
+          echo "env_tag=$ENV_TAG" >> $GITHUB_ENV
+
+      - name: Run environment-specific tests
+        run: |
+          echo "🧪 Running tests for ${{ github.event.inputs.environment }} environment..."
+          mvn clean test -B -Dspring.profiles.active=${{ github.event.inputs.environment }}
+
+      - name: Build and publish to environment
+        uses: ./.github/actions/build-and-publish
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          environment: ${{ github.event.inputs.environment }}
+          docker-registry: ghcr.io
+          docker-username: ${{ github.actor }}
+          docker-password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy to environment
+        env:
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
+          VERSION: ${{ steps.version.outputs.build-version }}
+        run: |
+          echo "🚀 Deploying to $ENVIRONMENT environment..."
+          echo "This is where you would deploy to your $ENVIRONMENT environment:"
+          echo ""
+          echo "Example deployment strategies:"
+          case "$ENVIRONMENT" in
+            tst)
+              echo "- Deploy to test clusters"
+              echo "- Run integration tests"
+              echo "- Validate API endpoints"
+              echo "- Check database migrations"
+              ;;
+            uat)
+              echo "- Deploy to UAT environment"
+              echo "- Run user acceptance tests"
+              echo "- Validate business workflows"
+              echo "- Performance testing"
+              ;;
+            preprod)
+              echo "- Deploy to pre-production"
+              echo "- Production-like environment testing"
+              echo "- Load testing"
+              echo "- Final validation before production"
+              ;;
+          esac
+
+      - name: Run environment validation tests
+        env:
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
+        run: |
+          echo "✅ Running validation tests for $ENVIRONMENT..."
+          
+          # Here you would run environment-specific tests
+          # Examples:
+          # - Health checks
+          # - Smoke tests
+          # - Integration tests
+          # - User acceptance tests (for UAT)
+          # - Load tests (for PREPROD)
+          
+          echo "Environment validation passed for $ENVIRONMENT!"
+
+      - name: Create environment deployment record
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const environment = '${{ github.event.inputs.environment }}';
+            const version = '${{ steps.version.outputs.current-version }}';
+            const tag = process.env.env_tag || 'no-tag';
+            const commitSha = context.sha;
+            
+            // Create a deployment record
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: commitSha,
+              environment: environment,
+              description: `Deployment to ${environment} environment`,
+              auto_merge: false,
+              required_contexts: []
+            });
+            
+            // Mark deployment as successful
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: deployment.data.id,
+              state: 'success',
+              description: `Successfully deployed ${version} to ${environment}`,
+              environment_url: `https://${environment}.yourdomain.com`
+            });
+            
+            console.log(`Deployment record created for ${environment}`);
+
+      - name: Notify team
+        if: always()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const status = '${{ job.status }}' === 'success' ? '✅ SUCCESS' : '❌ FAILED';
+            const environment = '${{ github.event.inputs.environment }}';
+            const version = '${{ steps.version.outputs.current-version }}';
+            const actor = context.actor;
+            
+            console.log(`${status} Environment Promotion`);
+            console.log(`Environment: ${environment.toUpperCase()}`);
+            console.log(`Version: ${version}`);
+            console.log(`Triggered by: ${actor}`);
+            console.log(`Tag: ${process.env.env_tag || 'no-tag'}`);
+
+      - name: Create deployment summary
+        if: always()
+        run: |
+          echo "## 🚀 Environment Promotion Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Status** | ${{ job.status == 'success' && '✅ Success' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Environment** | ${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Version** | ${{ steps.version.outputs.current-version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Build Version** | ${{ steps.version.outputs.build-version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Source** | ${{ github.event.inputs.source_ref || 'develop' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Tag Created** | ${{ github.event.inputs.create_tag == 'true' && env.env_tag || 'No' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Triggered By** | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Next Steps" >> $GITHUB_STEP_SUMMARY
+          
+          case "${{ github.event.inputs.environment }}" in
+            tst)
+              echo "- Verify deployment in TST environment" >> $GITHUB_STEP_SUMMARY
+              echo "- Run integration tests" >> $GITHUB_STEP_SUMMARY
+              echo "- Consider promoting to UAT when ready" >> $GITHUB_STEP_SUMMARY
+              ;;
+            uat)
+              echo "- Coordinate with business users for UAT" >> $GITHUB_STEP_SUMMARY
+              echo "- Execute user acceptance test scenarios" >> $GITHUB_STEP_SUMMARY
+              echo "- Consider promoting to PREPROD when UAT passes" >> $GITHUB_STEP_SUMMARY
+              ;;
+            preprod)
+              echo "- Perform final validation in PREPROD" >> $GITHUB_STEP_SUMMARY
+              echo "- Execute load and performance tests" >> $GITHUB_STEP_SUMMARY
+              echo "- Prepare for production release" >> $GITHUB_STEP_SUMMARY
+              ;;
+          esac

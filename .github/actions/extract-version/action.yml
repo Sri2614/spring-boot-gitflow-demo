@@ -1,0 +1,65 @@
+name: "Extract Version"
+description: "Extract version information from Maven POM file"
+
+inputs:
+  branch:
+    description: "Branch to extract version from"
+    required: false
+    default: ""
+
+outputs:
+  current-version:
+    description: "Current version from pom.xml"
+    value: ${{ steps.extract.outputs.current-version }}
+  major:
+    description: "Major version number"
+    value: ${{ steps.extract.outputs.major }}
+  minor:
+    description: "Minor version number" 
+    value: ${{ steps.extract.outputs.minor }}
+  patch:
+    description: "Patch version number"
+    value: ${{ steps.extract.outputs.patch }}
+  build-version:
+    description: "Version for building (with timestamp if snapshot)"
+    value: ${{ steps.extract.outputs.build-version }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Extract version information
+      id: extract
+      shell: bash
+      run: |
+        # Extract current version from pom.xml
+        CURRENT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        echo "current-version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+        
+        # Parse version components (remove -SNAPSHOT if present)
+        VERSION_CORE=${CURRENT_VERSION%-SNAPSHOT}
+        IFS='.' read -ra VERSION_PARTS <<< "$VERSION_CORE"
+        
+        MAJOR=${VERSION_PARTS[0]}
+        MINOR=${VERSION_PARTS[1]:-0}
+        PATCH=${VERSION_PARTS[2]:-0}
+        
+        echo "major=$MAJOR" >> $GITHUB_OUTPUT
+        echo "minor=$MINOR" >> $GITHUB_OUTPUT
+        echo "patch=$PATCH" >> $GITHUB_OUTPUT
+        
+        # Create build version (add timestamp for snapshots)
+        if [[ "$CURRENT_VERSION" == *"-SNAPSHOT" ]]; then
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          BUILD_VERSION="${VERSION_CORE}-${TIMESTAMP}"
+        else
+          BUILD_VERSION="$CURRENT_VERSION"
+        fi
+        
+        echo "build-version=$BUILD_VERSION" >> $GITHUB_OUTPUT
+        
+        echo "📋 Version Information:"
+        echo "  Current Version: $CURRENT_VERSION"
+        echo "  Major: $MAJOR"
+        echo "  Minor: $MINOR" 
+        echo "  Patch: $PATCH"
+        echo "  Build Version: $BUILD_VERSION"

@@ -1,0 +1,273 @@
+name: Start Release or Hotfix
+
+on:
+  issues:
+    types: [ opened ]
+
+jobs:
+  start-release-hotfix:
+    runs-on: ubuntu-latest
+    # Only trigger on issues with release or hotfix labels
+    if: >
+      contains(join(github.event.issue.labels.*.name, ' '), 'release:major') || 
+      contains(join(github.event.issue.labels.*.name, ' '), 'release:minor') || 
+      contains(join(github.event.issue.labels.*.name, ' '), 'bug:hotfix')
+    strategy:
+      matrix:
+        java: [21]
+    name: Start release or hotfix process from issue
+    timeout-minutes: 30
+    environment: >-
+      ${{
+        contains(join(github.event.issue.labels.*.name, ' '), 'bug:hotfix') && 'production' ||
+        'staging'
+      }}
+
+    steps:
+      - name: Determine flow type
+        id: flow-type
+        run: |
+          echo "release_major=${{ contains(join(github.event.issue.labels.*.name, ' '), 'release:major') }}" >> $GITHUB_OUTPUT
+          echo "release_minor=${{ contains(join(github.event.issue.labels.*.name, ' '), 'release:minor') }}" >> $GITHUB_OUTPUT
+          echo "hotfix=${{ contains(join(github.event.issue.labels.*.name, ' '), 'bug:hotfix') }}" >> $GITHUB_OUTPUT
+
+      - name: Checkout develop (for releases)
+        if: steps.flow-type.outputs.release_major == 'true' || steps.flow-type.outputs.release_minor == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout master (for hotfixes)
+        if: steps.flow-type.outputs.hotfix == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Set up Java ${{ matrix.java }}
+        uses: actions/setup-java@v3
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Extract current version
+        id: current-version
+        uses: ./.github/actions/extract-version
+
+      - name: Calculate next version
+        id: next-version
+        run: |
+          CURRENT_VERSION="${{ steps.current-version.outputs.current-version }}"
+          MAJOR=${{ steps.current-version.outputs.major }}
+          MINOR=${{ steps.current-version.outputs.minor }}
+          PATCH=${{ steps.current-version.outputs.patch }}
+          
+          if [[ "${{ steps.flow-type.outputs.release_major }}" == "true" ]]; then
+            NEXT_MAJOR=$((MAJOR + 1))
+            NEXT_VERSION="${NEXT_MAJOR}.0.0"
+            BRANCH_VERSION="${NEXT_VERSION}-RC1"
+            BRANCH_NAME="release/${NEXT_VERSION}"
+          elif [[ "${{ steps.flow-type.outputs.release_minor }}" == "true" ]]; then
+            NEXT_MINOR=$((MINOR + 1))
+            NEXT_VERSION="${MAJOR}.${NEXT_MINOR}.0"
+            BRANCH_VERSION="${NEXT_VERSION}-RC1"
+            BRANCH_NAME="release/${NEXT_VERSION}"
+          elif [[ "${{ steps.flow-type.outputs.hotfix }}" == "true" ]]; then
+            NEXT_PATCH=$((PATCH + 1))
+            NEXT_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
+            BRANCH_VERSION="${NEXT_VERSION}"
+            BRANCH_NAME="hotfix/${NEXT_VERSION}"
+          fi
+          
+          echo "next-version=$NEXT_VERSION" >> $GITHUB_OUTPUT
+          echo "branch-version=$BRANCH_VERSION" >> $GITHUB_OUTPUT
+          echo "branch-name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          
+          echo "📋 Version Planning:"
+          echo "  Current: $CURRENT_VERSION"
+          echo "  Next: $NEXT_VERSION"
+          echo "  Branch: $BRANCH_NAME"
+          echo "  Branch Version: $BRANCH_VERSION"
+
+      - name: Create new branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          BRANCH_NAME="${{ steps.next-version.outputs.branch-name }}"
+          echo "🌿 Creating branch: $BRANCH_NAME"
+          
+          git checkout -b "$BRANCH_NAME"
+          git push origin "$BRANCH_NAME"
+
+      - name: Update version in branch
+        uses: ./.github/actions/bump-version
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          target-version: ${{ steps.next-version.outputs.branch-version }}
+
+      - name: Push version changes
+        run: |
+          git push origin ${{ steps.next-version.outputs.branch-name }}
+
+      - name: Update CHANGELOG
+        run: |
+          echo "📝 Updating CHANGELOG for version ${{ steps.next-version.outputs.next-version }}"
+          
+          # Create or update CHANGELOG.md
+          if [[ ! -f CHANGELOG.md ]]; then
+            echo "# Changelog" > CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "All notable changes to this project will be documented in this file." >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+          
+          # Add new version entry
+          sed -i '1a\\n## [${{ steps.next-version.outputs.next-version }}] - $(date +%Y-%m-%d)\n\n### Added\n- New features and improvements\n\n### Changed\n- Changes in existing functionality\n\n### Fixed\n- Bug fixes\n' CHANGELOG.md
+          
+          git add CHANGELOG.md
+          git commit -m "Update CHANGELOG for ${{ steps.next-version.outputs.next-version }}" || echo "No CHANGELOG changes to commit"
+          git push origin ${{ steps.next-version.outputs.branch-name }}
+
+      - name: Build and test
+        run: |
+          echo "🔨 Building and testing..."
+          mvn clean test -B
+          mvn package -DskipTests -B
+
+      - name: Create Pull Request (Release)
+        if: steps.flow-type.outputs.release_major == 'true' || steps.flow-type.outputs.release_minor == 'true'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Release ${{ steps.next-version.outputs.next-version }}`,
+              head: '${{ steps.next-version.outputs.branch-name }}',
+              base: 'master',
+              body: `## 🚀 Release ${{ steps.next-version.outputs.next-version }}
+              
+              This PR contains the release preparation for version ${{ steps.next-version.outputs.next-version }}.
+              
+              **Issue:** Closes #${{ github.event.issue.number }}
+              **Type:** ${{ steps.flow-type.outputs.release_major == 'true' && 'Major Release' || 'Minor Release' }}
+              **Branch:** \`${{ steps.next-version.outputs.branch-name }}\`
+              
+              ### 📋 Pre-merge Checklist
+              - [ ] All tests pass
+              - [ ] Code review completed
+              - [ ] Documentation updated
+              - [ ] CHANGELOG.md updated
+              - [ ] Release notes prepared
+              
+              ### 🚀 Post-merge Actions
+              After merging this PR:
+              1. Version will be finalized (remove RC suffix)
+              2. Docker image will be built and published
+              3. Git tag will be created
+              4. Release artifacts will be published
+              5. Changes will be merged back to develop
+              
+              **Reviewers:** @${{ github.event.issue.user.login }}`
+            });
+            
+            console.log(`Created PR #${pr.number}: ${pr.title}`);
+
+      - name: Create Pull Request (Hotfix)
+        if: steps.flow-type.outputs.hotfix == 'true'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Hotfix ${{ steps.next-version.outputs.next-version }}`,
+              head: '${{ steps.next-version.outputs.branch-name }}',
+              base: 'master',
+              body: `## 🚨 Hotfix ${{ steps.next-version.outputs.next-version }}
+              
+              This PR contains a critical hotfix for production.
+              
+              **Issue:** Closes #${{ github.event.issue.number }}
+              **Type:** Hotfix
+              **Branch:** \`${{ steps.next-version.outputs.branch-name }}\`
+              **Severity:** ${{ contains(join(github.event.issue.labels.*.name, ' '), 'urgent') && 'URGENT' || 'High' }}
+              
+              ### 🔍 Problem Description
+              [To be filled from the issue]
+              
+              ### 🛠️ Solution
+              [To be filled during development]
+              
+              ### 📋 Pre-merge Checklist
+              - [ ] Fix implemented and tested
+              - [ ] No breaking changes
+              - [ ] Regression tests pass
+              - [ ] Code review completed
+              - [ ] Production deployment plan ready
+              
+              ### 🚀 Post-merge Actions
+              After merging this PR:
+              1. Version will be tagged
+              2. Docker image will be built and published
+              3. Immediate production deployment
+              4. Changes will be merged back to develop
+              
+              **Reviewers:** @${{ github.event.issue.user.login }}`
+            });
+            
+            console.log(`Created PR #${pr.number}: ${pr.title}`);
+
+      - name: Close triggering issue
+        uses: actions/github-script@v6
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              issue_number: ${{ github.event.issue.number }},
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `✅ **${{ steps.flow-type.outputs.hotfix == 'true' && 'Hotfix' || 'Release' }} process started!**
+              
+              - **Branch created:** \`${{ steps.next-version.outputs.branch-name }}\`
+              - **Version:** ${{ steps.next-version.outputs.branch-version }}
+              - **Pull Request:** Will be created shortly
+              
+              The automated workflow has:
+              1. Created the branch from ${{ steps.flow-type.outputs.hotfix == 'true' && 'master' || 'develop' }}
+              2. Updated version to ${{ steps.next-version.outputs.branch-version }}
+              3. Updated CHANGELOG.md
+              4. Built and tested the code
+              5. Created a pull request
+              
+              **Next steps:** Complete your changes in the branch, then merge the PR when ready.`
+            });
+            
+            await github.rest.issues.update({
+              issue_number: ${{ github.event.issue.number }},
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed'
+            });
+
+      - name: Create workflow summary
+        run: |
+          echo "## 🚀 ${{ steps.flow-type.outputs.hotfix == 'true' && 'Hotfix' || 'Release' }} Started!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Type** | ${{ steps.flow-type.outputs.release_major == 'true' && 'Major Release' || steps.flow-type.outputs.release_minor == 'true' && 'Minor Release' || 'Hotfix' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Current Version** | ${{ steps.current-version.outputs.current-version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Target Version** | ${{ steps.next-version.outputs.next-version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Branch** | ${{ steps.next-version.outputs.branch-name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Branch Version** | ${{ steps.next-version.outputs.branch-version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Source Branch** | ${{ steps.flow-type.outputs.hotfix == 'true' && 'master' || 'develop' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Issue** | #${{ github.event.issue.number }} |" >> $GITHUB_STEP_SUMMARY

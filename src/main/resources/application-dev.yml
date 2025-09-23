@@ -1,0 +1,19 @@
+# Development Environment Configuration
+demo:
+  environment: dev
+  
+logging:
+  level:
+    com.example.demo: DEBUG
+    org.springframework: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+
+spring:
+  h2:
+    console:
+      enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true

@@ -1,0 +1,101 @@
+name: Pull Request Check
+
+on:
+  pull_request:
+    branches: [ main, master, develop, 'release/*', 'hotfix/*', 'feature/*' ]
+    types: [ opened, synchronize, reopened ]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    # Skip first two PRs (similar to original logic for initial setup)
+    if: github.event.pull_request.number > 2
+    strategy:
+      matrix:
+        java: [21]
+    name: Build project with Java ${{ matrix.java }} and ensure quality gates
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Set up Java ${{ matrix.java }}
+        uses: actions/setup-java@v3
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Extract version information
+        uses: ./.github/actions/extract-version
+
+      - name: Run tests
+        run: mvn clean test -B
+
+      - name: Generate test report
+        uses: dorny/test-reporter@v1
+        if: success() || failure()
+        with:
+          name: Maven Tests
+          path: target/surefire-reports/*.xml
+          reporter: java-junit
+
+      - name: Code coverage
+        run: mvn jacoco:report
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        if: success()
+        with:
+          file: target/site/jacoco/jacoco.xml
+          flags: unittests
+          name: codecov-umbrella
+
+      - name: Build application
+        run: mvn clean compile package -DskipTests -B
+
+      - name: Build Docker image (test)
+        run: mvn jib:dockerBuild -Pdocker-local -DskipTests
+
+      - name: Security scan (OWASP Dependency Check)
+        run: |
+          mvn org.owasp:dependency-check-maven:check -B
+        continue-on-error: true
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectKey=spring-boot-gitflow-demo
+            -Dsonar.organization=${{ github.repository_owner }}
+        continue-on-error: true
+
+      - name: Comment PR with build info
+        uses: actions/github-script@v6
+        if: always()
+        with:
+          script: |
+            const outcome = '${{ job.status }}';
+            const icon = outcome === 'success' ? '✅' : '❌';
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `${icon} **Build ${outcome}** for commit ${context.sha.slice(0, 7)}\n\n` +
+                    `**Java Version:** ${{ matrix.java }}\n` +
+                    `**Tests:** ${outcome === 'success' ? 'Passed' : 'Check logs for details'}\n` +
+                    `**Docker Build:** ${outcome === 'success' ? 'Successful' : 'Failed'}`
+            });

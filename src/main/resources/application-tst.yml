@@ -1,0 +1,18 @@
+# Test Environment Configuration
+demo:
+  environment: tst
+  
+logging:
+  level:
+    com.example.demo: INFO
+    org.springframework: INFO
+    org.hibernate: WARN
+
+spring:
+  h2:
+    console:
+      enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: create
+    show-sql: false

@@ -1,0 +1,121 @@
+name: "Build and Publish"
+description: "Build Maven project and publish Docker image"
+
+inputs:
+  token:
+    description: "GitHub token"
+    required: true
+  environment:
+    description: "Target environment (dev, tst, uat, preprod, prod)"
+    required: false
+    default: "dev"
+  docker-registry:
+    description: "Docker registry URL"
+    required: false
+    default: "ghcr.io"
+  docker-username:
+    description: "Docker registry username"
+    required: false
+    default: ${{ github.actor }}
+  docker-password:
+    description: "Docker registry password"
+    required: false
+    default: ${{ inputs.token }}
+  create-tag:
+    description: "Whether to create Git tag"
+    required: false
+    default: "false"
+
+outputs:
+  image-name:
+    description: "Built Docker image name with tag"
+    value: ${{ steps.build.outputs.image-name }}
+  version:
+    description: "Application version"
+    value: ${{ steps.version.outputs.current-version }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Extract version
+      id: version
+      uses: ./.github/actions/extract-version
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ inputs.docker-registry }}
+        username: ${{ inputs.docker-username }}
+        password: ${{ inputs.docker-password }}
+
+    - name: Build application
+      shell: bash
+      run: |
+        echo "🔨 Building application..."
+        mvn clean package -DskipTests -B
+        echo "✅ Application built successfully"
+
+    - name: Build and publish Docker image
+      id: build
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.docker-registry }}
+        REPO_OWNER: ${{ github.repository_owner }}
+        REPO_NAME: ${{ github.event.repository.name }}
+        VERSION: ${{ steps.version.outputs.build-version }}
+        ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        # Determine image name and tags
+        IMAGE_BASE="${REGISTRY}/${REPO_OWNER}/${REPO_NAME}"
+        
+        # Create environment-specific tags
+        if [[ "$ENVIRONMENT" == "prod" ]]; then
+          # Production gets clean version tag
+          IMAGE_TAG="$VERSION"
+          TAGS="$IMAGE_BASE:$VERSION,$IMAGE_BASE:latest"
+        else
+          # Non-prod gets environment prefix
+          IMAGE_TAG="${ENVIRONMENT}-$VERSION"
+          TAGS="$IMAGE_BASE:${ENVIRONMENT}-$VERSION,$IMAGE_BASE:${ENVIRONMENT}-latest"
+        fi
+        
+        echo "🐳 Building Docker image: $IMAGE_BASE:$IMAGE_TAG"
+        
+        # Build and push using JIB
+        mvn jib:build -Pdocker \
+          -Djib.to.image="$IMAGE_BASE" \
+          -Djib.to.tags="$IMAGE_TAG,${ENVIRONMENT}-latest" \
+          -Djib.to.auth.username="${{ inputs.docker-username }}" \
+          -Djib.to.auth.password="${{ inputs.docker-password }}" \
+          -B
+        
+        echo "image-name=$IMAGE_BASE:$IMAGE_TAG" >> $GITHUB_OUTPUT
+        echo "✅ Docker image built and pushed successfully"
+
+    - name: Create Git tag
+      if: inputs.create-tag == 'true'
+      shell: bash
+      run: |
+        TAG_NAME="v${{ steps.version.outputs.current-version }}"
+        echo "🏷️ Creating Git tag: $TAG_NAME"
+        
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        
+        git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
+        git push origin "$TAG_NAME"
+        
+        echo "✅ Git tag created successfully"
+
+    - name: Generate build summary
+      shell: bash
+      run: |
+        echo "## 🚀 Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- **Environment**: ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version**: ${{ steps.version.outputs.current-version }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Build Version**: ${{ steps.version.outputs.build-version }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Docker Image**: ${{ steps.build.outputs.image-name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Registry**: ${{ inputs.docker-registry }}" >> $GITHUB_STEP_SUMMARY
