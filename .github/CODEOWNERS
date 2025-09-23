@@ -1,0 +1,36 @@
+# Global code owners for the Spring Boot GitFlow Demo
+# These users will be requested for review when anyone opens a pull request.
+
+# Global owners for all files
+* @Sri2614
+
+# Java source code requires review from backend developers
+*.java @Sri2614
+src/main/java/ @Sri2614
+src/test/java/ @Sri2614
+
+# Configuration files require DevOps review
+*.yml @Sri2614
+*.yaml @Sri2614
+*.properties @Sri2614
+Dockerfile* @Sri2614
+docker-compose* @Sri2614
+
+# CI/CD workflows require DevOps approval
+.github/workflows/ @Sri2614
+.github/actions/ @Sri2614
+
+# Database migrations require careful review
+src/main/resources/db/ @Sri2614
+
+# Documentation updates
+*.md @Sri2614
+docs/ @Sri2614
+
+# Maven configuration
+pom.xml @Sri2614
+mvnw* @Sri2614
+
+# Security and dependency files
+.github/dependabot.yml @Sri2614
+.github/security.yml @Sri2614
