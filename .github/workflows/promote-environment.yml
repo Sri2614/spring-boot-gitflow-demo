@@ -22,6 +22,11 @@ on:
         type: boolean
         default: true
 
+permissions:
+  contents: write
+  deployments: write
+  packages: write
+
 jobs:
   promote:
     runs-on: ubuntu-latest
