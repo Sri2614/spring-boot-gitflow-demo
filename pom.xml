@@ -15,7 +15,7 @@
     
     <groupId>com.example</groupId>
     <artifactId>spring-boot-gitflow-demo</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <packaging>jar</packaging>
     
     <name>Spring Boot GitFlow Demo</name>
