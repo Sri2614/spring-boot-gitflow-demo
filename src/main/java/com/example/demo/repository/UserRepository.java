@@ -36,4 +36,26 @@ public interface UserRepository extends JpaRepository<User, Long> {
      */
     @Query("SELECT COUNT(u) FROM User u WHERE u.createdAt >= CURRENT_DATE")
     long countUsersCreatedToday();
+
+    /**
+     * Find users by department (case insensitive)
+     */
+    @Query("SELECT u FROM User u WHERE LOWER(u.department) = LOWER(:department)")
+    List<User> findByDepartmentIgnoreCase(@Param("department") String department);
+
+    /**
+     * Find active users only
+     */
+    List<User> findByIsActiveTrue();
+
+    /**
+     * Find inactive users only
+     */
+    List<User> findByIsActiveFalse();
+
+    /**
+     * Find users by job title containing the given string (case insensitive)
+     */
+    @Query("SELECT u FROM User u WHERE LOWER(u.jobTitle) LIKE LOWER(CONCAT('%', :jobTitle, '%'))")
+    List<User> findByJobTitleContainingIgnoreCase(@Param("jobTitle") String jobTitle);
 }

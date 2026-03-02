@@ -34,6 +34,21 @@ public class User {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    @Column(name = "phone_number")
+    @Size(max = 15, message = "Phone number must not exceed 15 characters")
+    private String phoneNumber;
+
+    @Column(name = "department")
+    @Size(max = 50, message = "Department must not exceed 50 characters")
+    private String department;
+
+    @Column(name = "job_title")
+    @Size(max = 100, message = "Job title must not exceed 100 characters")
+    private String jobTitle;
+
+    @Column(name = "is_active")
+    private Boolean isActive = true;
+
     // Constructors
     public User() {}
 
@@ -42,6 +57,18 @@ public class User {
         this.email = email;
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
+        this.isActive = true;
+    }
+
+    public User(String name, String email, String phoneNumber, String department, String jobTitle) {
+        this.name = name;
+        this.email = email;
+        this.phoneNumber = phoneNumber;
+        this.department = department;
+        this.jobTitle = jobTitle;
+        this.createdAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now();
+        this.isActive = true;
     }
 
     // Getters and Setters
@@ -87,6 +114,42 @@ public class User {
         this.updatedAt = updatedAt;
     }
 
+    public String getPhoneNumber() {
+        return phoneNumber;
+    }
+
+    public void setPhoneNumber(String phoneNumber) {
+        this.phoneNumber = phoneNumber;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public String getDepartment() {
+        return department;
+    }
+
+    public void setDepartment(String department) {
+        this.department = department;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public String getJobTitle() {
+        return jobTitle;
+    }
+
+    public void setJobTitle(String jobTitle) {
+        this.jobTitle = jobTitle;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public Boolean getIsActive() {
+        return isActive;
+    }
+
+    public void setIsActive(Boolean isActive) {
+        this.isActive = isActive;
+        this.updatedAt = LocalDateTime.now();
+    }
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
@@ -104,6 +167,10 @@ public class User {
                 "id=" + id +
                 ", name='" + name + '\'' +
                 ", email='" + email + '\'' +
+                ", phoneNumber='" + phoneNumber + '\'' +
+                ", department='" + department + '\'' +
+                ", jobTitle='" + jobTitle + '\'' +
+                ", isActive=" + isActive +
                 ", createdAt=" + createdAt +
                 ", updatedAt=" + updatedAt +
                 '}';

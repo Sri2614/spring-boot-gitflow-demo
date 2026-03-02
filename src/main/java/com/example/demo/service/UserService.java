@@ -72,18 +72,46 @@ public class UserService {
     }
 
     /**
+     * Search users by department
+     */
+    public List<User> getUsersByDepartment(String department) {
+        return userRepository.findByDepartmentIgnoreCase(department);
+    }
+
+    /**
+     * Get active users only
+     */
+    public List<User> getActiveUsers() {
+        return userRepository.findByIsActiveTrue();
+    }
+
+    /**
+     * Get inactive users only
+     */
+    public List<User> getInactiveUsers() {
+        return userRepository.findByIsActiveFalse();
+    }
+
+    /**
+     * Search users by job title
+     */
+    public List<User> getUsersByJobTitle(String jobTitle) {
+        return userRepository.findByJobTitleContainingIgnoreCase(jobTitle);
+    }
+
+    /**
      * Initialize demo data
      */
     @PostConstruct
     public void initDemoData() {
         if (userRepository.count() == 0) {
-            // Add some demo users
-            userRepository.save(new User("Alice Johnson", "alice@example.com"));
-            userRepository.save(new User("Bob Smith", "bob@example.com"));
-            userRepository.save(new User("Carol Davis", "carol@example.com"));
-            userRepository.save(new User("David Wilson", "david@example.com"));
+            // Add some demo users with enhanced profile data
+            userRepository.save(new User("Alice Johnson", "alice@example.com", "+1-555-0101", "Engineering", "Senior Software Engineer"));
+            userRepository.save(new User("Bob Smith", "bob@example.com", "+1-555-0102", "Product", "Product Manager"));
+            userRepository.save(new User("Carol Davis", "carol@example.com", "+1-555-0103", "Design", "UX Designer"));
+            userRepository.save(new User("David Wilson", "david@example.com", "+1-555-0104", "Marketing", "Marketing Specialist"));
             
-            System.out.println("Demo users created successfully!");
+            System.out.println("Demo users with enhanced profiles created successfully!");
         }
     }
 }
